@@ -7,14 +7,17 @@ const TASK_TYPES = {
   months: {
     title: "Mental Sort: Months",
     description: "Write the 12 months of the year in alphabetical order",
-    instruction: "Write all 12 months in alphabetical order on paper"
-  },
-  alphaNumeric: {
-    title: "Alpha-Numeric Sequence",
-    description: "Write A-1, B-2, C-3... through Z-26",
-    instruction: "Write the sequence A-1, B-2, C-3... all the way to Z-26"
+    instruction: "Write all 12 months in alphabetical order"
   }
 };
+
+// Correct answers in alphabetical order
+const CORRECT_MONTHS = [
+  'April', 'August', 'December', 'February', 'January', 'July',
+  'June', 'March', 'May', 'November', 'October', 'September'
+];
+
+const CORRECT_LETTER_COUNTS = [5, 6, 8, 8, 7, 4, 4, 5, 3, 8, 7, 9];
 
 function App() {
   const [step, setStep] = useState('setup'); // setup, prediction, action, results
@@ -23,10 +26,10 @@ function App() {
   const [timer, setTimer] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [actualTime, setActualTime] = useState(0);
-  const [userAnswer, setUserAnswer] = useState('');
   const [monthsAnswers, setMonthsAnswers] = useState(
     Array(12).fill({ month: '', letters: '' })
   );
+  const [currentUnlockedIndex, setCurrentUnlockedIndex] = useState(0);
   const [results, setResults] = useState(null);
   const [validationError, setValidationError] = useState('');
 
@@ -92,7 +95,7 @@ function App() {
         taskType,
         estimate: estimateNum,
         actualTime: finalTime,
-        userAnswer: taskType === 'months' ? JSON.stringify(monthsAnswers) : userAnswer,
+        monthsAnswers,
         errorRatio,
         timestamp: serverTimestamp()
       });
@@ -110,16 +113,26 @@ function App() {
     setTimer(0);
     setIsRunning(false);
     setActualTime(0);
-    setUserAnswer('');
     setMonthsAnswers(Array(12).fill({ month: '', letters: '' }));
+    setCurrentUnlockedIndex(0);
     setResults(null);
     setValidationError('');
   };
 
   const updateMonthAnswer = (index, field, value) => {
-    setMonthsAnswers(prev => prev.map((item, i) =>
-      i === index ? { ...item, [field]: value } : item
-    ));
+    const newAnswers = [...monthsAnswers];
+    newAnswers[index] = { ...newAnswers[index], [field]: value };
+    setMonthsAnswers(newAnswers);
+
+    // Check if both month and letter count are correct
+    const isMonthCorrect = newAnswers[index].month === CORRECT_MONTHS[index];
+    const letterCount = parseInt(newAnswers[index].letters);
+    const isLetterCountCorrect = !isNaN(letterCount) && letterCount === CORRECT_LETTER_COUNTS[index];
+
+    // Unlock next row only when both are correct
+    if (isMonthCorrect && isLetterCountCorrect && index < 11) {
+      setCurrentUnlockedIndex(index + 1);
+    }
   };
 
   return (
@@ -136,32 +149,28 @@ function App() {
         {/* Setup Step */}
         {step === 'setup' && (
           <div className="space-y-6">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-4">
-              Choose Your Challenge
-            </h2>
-
-            <div className="space-y-3">
-              {Object.entries(TASK_TYPES).map(([key, task]) => (
-                <button
-                  key={key}
-                  onClick={() => setTaskType(key)}
-                  className={`w-full p-4 rounded-lg border-2 transition-all text-left min-h-[44px] ${
-                    taskType === key
-                      ? 'border-blue-600 bg-blue-50'
-                      : 'border-gray-200 hover:border-blue-300'
-                  }`}
-                >
-                  <div className="font-semibold text-lg">{task.title}</div>
-                  <div className="text-sm text-gray-600">{task.description}</div>
-                </button>
-              ))}
+            <div className="text-center space-y-4">
+              <h2 className="text-2xl font-semibold text-gray-800">
+                Today's Challenge
+              </h2>
+              <div className="bg-blue-50 border-2 border-blue-600 rounded-lg p-6">
+                <div className="font-semibold text-xl text-blue-900 mb-2">
+                  Mental Sort: Months
+                </div>
+                <p className="text-gray-700">
+                  Write the 12 months of the year in alphabetical order
+                </p>
+              </div>
+              <p className="text-gray-600">
+                First, you'll estimate how long this will take. Then we'll time you!
+              </p>
             </div>
 
             <button
               onClick={() => setStep('prediction')}
-              className="w-full bg-blue-600 text-white py-4 rounded-lg font-semibold hover:bg-blue-700 transition-colors min-h-[44px]"
+              className="w-full bg-blue-600 text-white py-4 rounded-lg font-semibold hover:bg-blue-700 transition-colors min-h-[44px] text-lg"
             >
-              Next: Make Your Prediction
+              Begin Challenge
             </button>
           </div>
         )}
@@ -266,12 +275,22 @@ function App() {
               )}
             </div>
 
-            {/* Input area based on task type */}
-            {taskType === 'months' ? (
-              <div className="space-y-2">
-                <p className="text-sm text-gray-600 mb-3">Enter each month alphabetically with its letter count:</p>
-                <div className="grid gap-2">
-                  {monthsAnswers.map((item, index) => (
+            {/* Input area */}
+            <div className="space-y-2">
+              <p className="text-sm text-gray-600 mb-3">
+                {timer === 0 && !isRunning
+                  ? 'Click "Start Timer" to begin entering your answers!'
+                  : 'Enter each month alphabetically (capital first letter) and its letter count. Complete both to unlock the next row!'}
+              </p>
+              <div className="grid gap-2">
+                {monthsAnswers.map((item, index) => {
+                  const hasStarted = timer > 0 || isRunning;
+                  const isUnlocked = index <= currentUnlockedIndex;
+                  const isMonthCorrect = item.month === CORRECT_MONTHS[index];
+                  const letterCount = parseInt(item.letters);
+                  const isLetterCountCorrect = !isNaN(letterCount) && letterCount === CORRECT_LETTER_COUNTS[index];
+
+                  return (
                     <div key={index} className="flex items-center gap-2">
                       <span className="text-sm text-gray-500 w-6">{index + 1}.</span>
                       <input
@@ -279,29 +298,35 @@ function App() {
                         value={item.month}
                         onChange={(e) => updateMonthAnswer(index, 'month', e.target.value)}
                         placeholder="Month"
-                        className="flex-1 p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
+                        disabled={!hasStarted || !isUnlocked}
+                        className={`flex-1 p-2 border-2 rounded-lg focus:outline-none transition-colors ${
+                          !hasStarted || !isUnlocked
+                            ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                            : isMonthCorrect
+                            ? 'border-green-500 bg-green-50 text-green-900'
+                            : 'border-gray-300 focus:border-blue-600'
+                        }`}
                       />
                       <input
                         type="number"
                         value={item.letters}
                         onChange={(e) => updateMonthAnswer(index, 'letters', e.target.value)}
                         placeholder="#"
-                        className="w-14 p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none text-center"
+                        disabled={!hasStarted || !isMonthCorrect}
+                        className={`w-14 p-2 border-2 rounded-lg focus:outline-none text-center transition-colors ${
+                          !hasStarted || !isMonthCorrect
+                            ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                            : isLetterCountCorrect
+                            ? 'border-green-500 bg-green-50 text-green-900'
+                            : 'border-gray-300 focus:border-blue-600'
+                        }`}
                         min="0"
                       />
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
-            ) : (
-              <textarea
-                value={userAnswer}
-                onChange={(e) => setUserAnswer(e.target.value)}
-                placeholder="Write your answer here: A-1, B-2, C-3..."
-                className="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none resize-none"
-                rows="6"
-              />
-            )}
+            </div>
           </div>
         )}
 
