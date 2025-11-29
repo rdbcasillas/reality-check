@@ -188,6 +188,25 @@ function App() {
               </p>
             </div>
 
+            {/* List of months in chronological order */}
+            <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
+              <p className="text-sm font-medium text-gray-700 mb-2">The 12 months:</p>
+              <div className="grid grid-cols-3 gap-2 text-sm text-gray-700">
+                <span>January</span>
+                <span>February</span>
+                <span>March</span>
+                <span>April</span>
+                <span>May</span>
+                <span>June</span>
+                <span>July</span>
+                <span>August</span>
+                <span>September</span>
+                <span>October</span>
+                <span>November</span>
+                <span>December</span>
+              </div>
+            </div>
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
