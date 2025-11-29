@@ -32,6 +32,7 @@ function App() {
   const [currentUnlockedIndex, setCurrentUnlockedIndex] = useState(0);
   const [results, setResults] = useState(null);
   const [validationError, setValidationError] = useState('');
+  const [showStopConfirmation, setShowStopConfirmation] = useState(false);
 
   const timerRef = useRef(null);
 
@@ -266,7 +267,7 @@ function App() {
 
               {isRunning && (
                 <button
-                  onClick={handleStopTask}
+                  onClick={() => setShowStopConfirmation(true)}
                   className="w-full bg-red-600 text-white py-4 rounded-lg font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-2 min-h-[44px]"
                 >
                   <Square size={24} />
@@ -325,6 +326,37 @@ function App() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Stop Timer Confirmation Modal */}
+        {showStopConfirmation && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full">
+              <h3 className="text-xl font-bold text-gray-800 mb-3">
+                Stop Timer?
+              </h3>
+              <p className="text-gray-600 mb-6">
+                Are you sure you want to stop the timer? Your results will be saved and you'll move to the results screen.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowStopConfirmation(false)}
+                  className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-300 transition-colors min-h-[44px]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setShowStopConfirmation(false);
+                    handleStopTask();
+                  }}
+                  className="flex-1 bg-red-600 text-white py-3 rounded-lg font-semibold hover:bg-red-700 transition-colors min-h-[44px]"
+                >
+                  Yes, Stop Timer
+                </button>
               </div>
             </div>
           </div>
