@@ -159,7 +159,7 @@ function App() {
                   Mental Sort: Months
                 </div>
                 <p className="text-gray-700">
-                  Write the 12 months of the year in alphabetical order
+                  Write the 12 months of the year in alphabetical order, plus the number of letters in each month
                 </p>
               </div>
               <p className="text-gray-600">
