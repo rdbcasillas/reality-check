@@ -1,0 +1,465 @@
+import { useState, useEffect, useRef } from 'react';
+import { Clock, Play, Target, AlertCircle } from 'lucide-react';
+import { db, auth } from './firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+
+const COUNTDOWN_DURATION = 90; // 90 seconds total
+
+// Correct answers in alphabetical order
+const CORRECT_MONTHS = [
+  'April', 'August', 'December', 'February', 'January', 'July',
+  'June', 'March', 'May', 'November', 'October', 'September'
+];
+
+const CORRECT_LETTER_COUNTS = [5, 6, 8, 8, 7, 4, 4, 5, 3, 8, 7, 9];
+
+function WorkshopApp() {
+  const [step, setStep] = useState('setup'); // setup, prediction, action, results
+  const [predictedMonths, setPredictedMonths] = useState('');
+  const [timer, setTimer] = useState(COUNTDOWN_DURATION);
+  const [isRunning, setIsRunning] = useState(false);
+  const [monthsAnswers, setMonthsAnswers] = useState(
+    Array(12).fill({ month: '', letters: '' })
+  );
+  const [currentUnlockedIndex, setCurrentUnlockedIndex] = useState(0);
+  const [results, setResults] = useState(null);
+  const [validationError, setValidationError] = useState('');
+
+  const timerRef = useRef(null);
+  const hasSubmittedRef = useRef(false);
+
+  // Countdown timer logic
+  useEffect(() => {
+    if (isRunning && timer > 0) {
+      timerRef.current = setInterval(() => {
+        setTimer(t => {
+          if (t <= 0.1) {
+            // Timer reached 0 - auto stop
+            handleTimeUp();
+            return 0;
+          }
+          return t - 0.1;
+        });
+      }, 100);
+    } else {
+      clearInterval(timerRef.current);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [isRunning, timer]);
+
+  const validatePrediction = () => {
+    if (!predictedMonths) {
+      setValidationError('Please enter your prediction');
+      return false;
+    }
+
+    const predictionNum = parseInt(predictedMonths);
+    if (predictionNum < 1 || predictionNum > 12 || isNaN(predictionNum)) {
+      setValidationError('Please enter a number between 1 and 12');
+      return false;
+    }
+
+    setValidationError('');
+    return true;
+  };
+
+  const handleStartTask = () => {
+    setTimer(COUNTDOWN_DURATION);
+    setIsRunning(true);
+    hasSubmittedRef.current = false; // Reset submission flag
+  };
+
+  const countCompletedMonths = () => {
+    let count = 0;
+    for (let i = 0; i < 12; i++) {
+      const isMonthCorrect = monthsAnswers[i].month === CORRECT_MONTHS[i];
+      const letterCount = parseInt(monthsAnswers[i].letters);
+      const isLetterCountCorrect = !isNaN(letterCount) && letterCount === CORRECT_LETTER_COUNTS[i];
+
+      // Both month and letter count must be correct
+      if (isMonthCorrect && isLetterCountCorrect) {
+        count++;
+      } else {
+        // Stop counting at first incomplete/incorrect month
+        break;
+      }
+    }
+    return count;
+  };
+
+  const handleTimeUp = async () => {
+    // Prevent duplicate submissions
+    if (hasSubmittedRef.current) {
+      return;
+    }
+    hasSubmittedRef.current = true;
+
+    setIsRunning(false);
+    const actualMonths = countCompletedMonths();
+    const predictedNum = parseInt(predictedMonths);
+
+    const error = actualMonths - predictedNum;
+    const errorPercent = predictedNum > 0 ? ((error / predictedNum) * 100).toFixed(1) : 0;
+
+    const resultsData = {
+      predictedMonths: predictedNum,
+      actualMonths,
+      error,
+      errorPercent,
+      accuracy: ((Math.min(actualMonths, predictedNum) / Math.max(actualMonths, predictedNum)) * 100).toFixed(1)
+    };
+
+    setResults(resultsData);
+
+    // Save to Firebase
+    try {
+      const userId = auth.currentUser?.uid || 'anonymous';
+      await addDoc(collection(db, 'calibration_results'), {
+        userId,
+        taskType: 'countdown_months',
+        predictedMonths: predictedNum,
+        actualMonths,
+        monthsAnswers,
+        error,
+        errorPercent,
+        timestamp: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error saving to Firebase:', error);
+    }
+
+    setStep('results');
+  };
+
+  const resetApp = () => {
+    setStep('setup');
+    setPredictedMonths('');
+    setTimer(COUNTDOWN_DURATION);
+    setIsRunning(false);
+    setMonthsAnswers(Array(12).fill({ month: '', letters: '' }));
+    setCurrentUnlockedIndex(0);
+    setResults(null);
+    setValidationError('');
+    hasSubmittedRef.current = false; // Reset submission flag
+  };
+
+  const updateMonthAnswer = (index, field, value) => {
+    const newAnswers = [...monthsAnswers];
+    newAnswers[index] = { ...newAnswers[index], [field]: value };
+    setMonthsAnswers(newAnswers);
+
+    // Check if both month and letter count are correct
+    const isMonthCorrect = newAnswers[index].month === CORRECT_MONTHS[index];
+    const letterCount = parseInt(newAnswers[index].letters);
+    const isLetterCountCorrect = !isNaN(letterCount) && letterCount === CORRECT_LETTER_COUNTS[index];
+
+    // Unlock next row only when both are correct
+    if (isMonthCorrect && isLetterCountCorrect && index < 11) {
+      setCurrentUnlockedIndex(index + 1);
+    }
+  };
+
+  const formatTime = (seconds) => {
+    return `${seconds.toFixed(1)}s`;
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl p-6 md:p-8">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-3xl md:text-4xl font-bold text-blue-900 mb-2">
+            RealityCheck
+          </h1>
+          <p className="text-gray-600">Defeating the Planning Fallacy</p>
+        </div>
+
+        {/* Setup Step */}
+        {step === 'setup' && (
+          <div className="space-y-6">
+            <div className="text-center space-y-4">
+              <h2 className="text-2xl font-semibold text-gray-800">
+                Today's Challenge
+              </h2>
+              <div className="bg-blue-50 border-2 border-blue-600 rounded-lg p-6">
+                <div className="font-semibold text-xl text-blue-900 mb-3">
+                  Mental Sort: Months (Countdown Edition)
+                </div>
+                <p className="text-gray-700 mb-3">
+                  You have <span className="font-bold text-blue-600">90 seconds</span> to sort months alphabetically and count their letters.
+                </p>
+                <p className="text-gray-600 text-sm">
+                  Predict how many months you can complete, then see how you actually perform!
+                </p>
+              </div>
+              <div className="bg-amber-50 border border-amber-300 rounded-lg p-4">
+                <p className="text-sm text-amber-800">
+                  <strong>Workshop Note:</strong> Everyone works with the same 90-second timer. This keeps the activity quick and engaging!
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setStep('prediction')}
+              className="w-full bg-blue-600 text-white py-4 rounded-lg font-semibold hover:bg-blue-700 transition-colors min-h-[44px] text-lg"
+            >
+              Begin Challenge
+            </button>
+          </div>
+        )}
+
+        {/* Prediction Step */}
+        {step === 'prediction' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-semibold text-gray-800 mb-2">
+                How many months can you complete?
+              </h2>
+              <p className="text-gray-600">
+                You'll have exactly 90 seconds. Each month needs both the correct name (in alphabetical order) and letter count.
+              </p>
+            </div>
+
+            {/* List of months in chronological order */}
+            <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
+              <p className="text-sm font-medium text-gray-700 mb-2">The 12 months (chronological order):</p>
+              <div className="grid grid-cols-3 gap-2 text-sm text-gray-700">
+                <span>January</span>
+                <span>February</span>
+                <span>March</span>
+                <span>April</span>
+                <span>May</span>
+                <span>June</span>
+                <span>July</span>
+                <span>August</span>
+                <span>September</span>
+                <span>October</span>
+                <span>November</span>
+                <span>December</span>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Your Prediction (1-12 months)
+                </label>
+                <input
+                  type="number"
+                  value={predictedMonths}
+                  onChange={(e) => setPredictedMonths(e.target.value)}
+                  placeholder="e.g., 8"
+                  className="w-full p-4 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none text-xl text-center"
+                  min="1"
+                  max="12"
+                  step="1"
+                />
+                <p className="text-sm font-bold text-gray-700 mt-3 text-center bg-amber-50 border border-amber-200 rounded-lg py-2 px-4">
+                  Remember: You must sort them alphabetically AND count letters correctly
+                </p>
+              </div>
+
+              {validationError && (
+                <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg">
+                  <AlertCircle size={20} />
+                  <span className="text-sm">{validationError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setStep('setup')}
+                className="flex-1 bg-gray-200 text-gray-700 py-4 rounded-lg font-semibold hover:bg-gray-300 transition-colors min-h-[44px]"
+              >
+                Back
+              </button>
+              <button
+                onClick={() => {
+                  if (validatePrediction()) {
+                    setStep('action');
+                  }
+                }}
+                className="flex-1 bg-blue-600 text-white py-4 rounded-lg font-semibold hover:bg-blue-700 transition-colors min-h-[44px]"
+              >
+                Lock In & Start
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Action Step */}
+        {step === 'action' && (
+          <div className="space-y-6">
+            <div className="text-center">
+              <h2 className="text-2xl font-semibold text-gray-800 mb-2">
+                Sort the months alphabetically!
+              </h2>
+              <p className="text-gray-600 mb-2">
+                You predicted: <span className="font-bold text-blue-600">{predictedMonths} months</span>
+              </p>
+            </div>
+
+            <div className={`rounded-xl p-8 text-center transition-colors ${
+              timer <= 10 ? 'bg-red-100' : 'bg-blue-50'
+            }`}>
+              <div className="flex items-center justify-center gap-3 mb-2">
+                <Clock className={timer <= 10 ? 'text-red-600' : 'text-blue-600'} size={32} />
+                <div className={`text-6xl font-mono font-bold ${
+                  timer <= 10 ? 'text-red-600 animate-pulse' : 'text-blue-900'
+                }`}>
+                  {formatTime(timer)}
+                </div>
+              </div>
+              <p className="text-sm text-gray-600">
+                {timer <= 10 ? 'Hurry! Time running out!' : 'Time remaining'}
+              </p>
+            </div>
+
+            {!isRunning && timer === COUNTDOWN_DURATION && (
+              <button
+                onClick={handleStartTask}
+                className="w-full bg-green-600 text-white py-4 rounded-lg font-semibold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 min-h-[44px]"
+              >
+                <Play size={24} />
+                Start 90-Second Timer
+              </button>
+            )}
+
+            {/* Input area */}
+            <div className="space-y-2">
+              <div className="mb-3 space-y-2">
+                <p className="text-sm text-gray-600">
+                  {!isRunning && timer === COUNTDOWN_DURATION
+                    ? 'Click "Start" to begin. Complete as many as you can in 90 seconds!'
+                    : 'Enter months in ALPHABETICAL order (capital first letter) with letter counts!'}
+                </p>
+                {(isRunning || timer < COUNTDOWN_DURATION) && (
+                  <p className="text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded py-1.5 px-3">
+                    💡 Tip: Each field unlocks only when you enter the correct answer in the current field
+                  </p>
+                )}
+              </div>
+              <div className="grid gap-2 max-h-96 overflow-y-auto">
+                {monthsAnswers.map((item, index) => {
+                  const hasStarted = isRunning || timer < COUNTDOWN_DURATION;
+                  const isUnlocked = index <= currentUnlockedIndex;
+                  const isMonthCorrect = item.month === CORRECT_MONTHS[index];
+                  const letterCount = parseInt(item.letters);
+                  const isLetterCountCorrect = !isNaN(letterCount) && letterCount === CORRECT_LETTER_COUNTS[index];
+
+                  return (
+                    <div key={index} className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500 w-6">{index + 1}.</span>
+                      <input
+                        type="text"
+                        value={item.month}
+                        onChange={(e) => updateMonthAnswer(index, 'month', e.target.value)}
+                        placeholder="Month"
+                        disabled={!hasStarted || !isUnlocked}
+                        className={`flex-1 p-2 border-2 rounded-lg focus:outline-none transition-colors ${
+                          !hasStarted || !isUnlocked
+                            ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                            : isMonthCorrect
+                            ? 'border-green-500 bg-green-50 text-green-900'
+                            : 'border-gray-300 focus:border-blue-600'
+                        }`}
+                      />
+                      <input
+                        type="number"
+                        value={item.letters}
+                        onChange={(e) => updateMonthAnswer(index, 'letters', e.target.value)}
+                        placeholder="#"
+                        disabled={!hasStarted || !isMonthCorrect}
+                        className={`w-14 p-2 border-2 rounded-lg focus:outline-none text-center transition-colors ${
+                          !hasStarted || !isMonthCorrect
+                            ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                            : isLetterCountCorrect
+                            ? 'border-green-500 bg-green-50 text-green-900'
+                            : 'border-gray-300 focus:border-blue-600'
+                        }`}
+                        min="0"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Results Step */}
+        {step === 'results' && results && (
+          <div className="space-y-6">
+            <div className="text-center">
+              <h2 className="text-3xl font-bold text-gray-800 mb-2">
+                Time's Up!
+              </h2>
+              <p className="text-gray-600">Here's how you did</p>
+            </div>
+
+            {/* Main comparison */}
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6">
+              <div className="grid grid-cols-2 gap-6 text-center">
+                <div>
+                  <div className="text-sm text-gray-600 mb-1">Predicted</div>
+                  <div className="text-4xl font-bold text-blue-600 flex items-center justify-center gap-2">
+                    <Target size={32} />
+                    {results.predictedMonths}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">months</div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600 mb-1">Actually Completed</div>
+                  <div className="text-4xl font-bold text-indigo-600 flex items-center justify-center gap-2">
+                    <Clock size={32} />
+                    {results.actualMonths}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">months</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Error metrics */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-white border-2 border-gray-200 rounded-lg p-4 text-center">
+                <div className="text-sm text-gray-600 mb-1">Difference</div>
+                <div className={`text-2xl font-bold ${
+                  results.error > 0 ? 'text-green-600' : results.error < 0 ? 'text-red-600' : 'text-gray-600'
+                }`}>
+                  {results.error > 0 ? '+' : ''}{results.error}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {results.error > 0 ? 'Better than expected!' : results.error < 0 ? 'Overestimated' : 'Perfect!'}
+                </div>
+              </div>
+              <div className="bg-white border-2 border-gray-200 rounded-lg p-4 text-center">
+                <div className="text-sm text-gray-600 mb-1">Accuracy</div>
+                <div className="text-2xl font-bold text-purple-600">
+                  {results.accuracy}%
+                </div>
+                <div className="text-xs text-gray-500 mt-1">calibration score</div>
+              </div>
+            </div>
+
+            {/* Interpretation */}
+            <div className="bg-blue-50 rounded-lg p-4 text-sm text-gray-700">
+              <strong>What does this mean?</strong> The Planning Fallacy is our tendency to be overconfident
+              in our predictions. A difference of 0 means perfect calibration. Negative means you overestimated
+              your abilities, positive means you underestimated yourself!
+            </div>
+
+            <button
+              onClick={resetApp}
+              className="w-full bg-blue-600 text-white py-4 rounded-lg font-semibold hover:bg-blue-700 transition-colors min-h-[44px]"
+            >
+              Try Again
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default WorkshopApp;
